@@ -4,6 +4,7 @@ import (
 	"archive/zip"
 	"bytes"
 	"crypto/sha256"
+	"errors"
 	"encoding/hex"
 	"fmt"
 	"io"
@@ -14,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/dpinela/Raven/internal/config"
 	"github.com/dpinela/Raven/internal/modlinks"
 )
 
@@ -150,7 +152,7 @@ func extractZip(zipfile io.ReaderAt, size int64, name, installdir string) error 
 	for _, file := range archive.File {
 		// Prevent us from accidentally (or not so accidentally, in case of a malicious input)
 		// from writing outside the destination directory.
-		dest := filepath.Join(installdir, filepath.Join(string(filepath.Separator), filepath.FromSlash(file.Name)))
+		dest := joinNoEscape(installdir, filepath.FromSlash(file.Name))
 		if strings.HasSuffix(file.Name, "/") {
 			err = os.MkdirAll(dest, 0750)
 		} else {
@@ -161,6 +163,10 @@ func extractZip(zipfile io.ReaderAt, size int64, name, installdir string) error 
 		}
 	}
 	return nil
+}
+
+func joinNoEscape(parent string, child string) string {
+	return filepath.Join(parent, filepath.Join(string(filepath.Separator), child))
 }
 
 func writeZipFile(dest string, file *zip.File) error {
@@ -193,4 +199,103 @@ func writeZipFile(dest string, file *zip.File) error {
 		fmt.Println("warning:", err)
 	}
 	return nil
+}
+
+func install(args []string) error {
+	settings, err := config.Get()
+	if err != nil {
+		return err
+	}
+	if settings.GameLocation == "" {
+		return errors.New("setup not done yet")
+	}
+
+	cachedir, err := os.UserCacheDir()
+	if err != nil {
+		return fmt.Errorf("cache directory not available: %w", err)
+	}
+
+	repo, err := modlinks.Get()
+	if err != nil {
+		return err
+	}
+	resolvedMods := make([]string, 0, len(args))
+	for _, requestedName := range args {
+		mod, err := repo.ResolveModName(requestedName)
+		if err != nil {
+			fmt.Println(err)
+			continue
+		}
+		resolvedMods = append(resolvedMods, mod)
+	}
+
+	downloads, err := repo.TransitiveClosure(resolvedMods)
+	if err != nil {
+		return err
+	}
+	for _, dl := range downloads {
+		// There's no way we can reasonably install a mod whose name contains a path separator.
+		// This also avoids any path traversal vulnerabilities from mod names.
+		if strings.ContainsRune(dl.Name, filepath.Separator) {
+			fmt.Printf("cannot install %s: contains path separator\n", dl.Name)
+			continue
+		}
+		if strings.ContainsRune(path.Base(dl.Link), filepath.Separator) {
+			fmt.Printf("cannot install %s: filename contains path separator\n", dl.Name)
+			continue
+		}
+		file, err := getModFile(cachedir, &dl)
+		if err != nil {
+			fmt.Printf("cannot install %s: %v\n", dl.Name, err)
+			continue
+		}
+		installdir := filepath.Join(settings.GameLocation, "BepInEx", "plugins", dl.Name)
+		if err := removePreviousVersion(dl.Name, installdir); err != nil {
+			fmt.Printf("cannot install %s: %v\n", dl.Name, err)
+			file.Close()
+			continue
+		}
+		if file.IsZIP {
+			err = extractZip(file, file.Size, dl.Name, installdir)
+		} else {
+			err = extractModDLL(file, path.Base(dl.Link), installdir)
+		}
+		file.Close()
+		if err != nil {
+			fmt.Printf("cannot install %s: %v\n", dl.Name, err)
+		}
+	}
+	return nil
+}
+
+func extractModDLL(dllfile io.ReadSeeker, filename, installdir string) error {
+	wrap := func(err error) error { return fmt.Errorf("extract %s: %w", filename, err) }
+	dest := joinNoEscape(installdir, filename)
+	if err := os.MkdirAll(installdir, 0750); err != nil {
+		return wrap(err)
+	}
+	if _, err := dllfile.Seek(0, io.SeekStart); err != nil {
+		return wrap(err)
+	}
+	w, err := os.Create(dest)
+	if err != nil {
+		return wrap(err)
+	}
+	_, err = io.Copy(w, dllfile)
+	if err != nil {
+		w.Close()
+		return wrap(err)
+	}
+	if err := w.Close(); err != nil {
+		return wrap(err)
+	}
+	return nil
+}
+
+func removePreviousVersion(name, installdir string) error {
+	err := os.RemoveAll(installdir)
+	if err == nil || os.IsNotExist(err) {
+		return nil
+	}
+	return fmt.Errorf("yeet installed version of %s: %w", name, err)
 }

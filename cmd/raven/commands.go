@@ -17,10 +17,6 @@ func runCommand(args []string) error {
 	}
 }
 
-func install(args []string) error {
-	return nil
-}
-
 func list(args []string) error {
 	return nil
 }

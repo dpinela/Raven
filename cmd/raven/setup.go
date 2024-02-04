@@ -6,21 +6,9 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/BurntSushi/toml"
+	"github.com/dpinela/Raven/internal/config"
 	"github.com/dpinela/Raven/internal/modlinks"
 )
-
-type settings struct {
-	GameLocation string
-}
-
-func configFilePath() (string, error) {
-	cd, err := os.UserConfigDir()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(cd, appDirName, "config.toml"), nil
-}
 
 func setup(args []string) error {
 	if len(args) < 1 {
@@ -30,16 +18,10 @@ func setup(args []string) error {
 	location := args[0]
 
 	wrap := func(err error) error {
-		return fmt.Errorf("setup at %s: %w", location, err)
+		return fmt.Errorf("setup at %s: %w", args[0], err)
 	}
 
-	if err := checkGameAtPath(location); err != nil {
-		return wrap(err)
-	}
-
-	location = filepath.Dir(location)
-
-	cfPath, err := configFilePath()
+	location, err := normalizeGamePath(args[0])
 	if err != nil {
 		return wrap(err)
 	}
@@ -66,7 +48,7 @@ func setup(args []string) error {
 	if err != nil {
 		return wrap(err)
 	}
-	err = writeSettings(cfPath, settings{GameLocation: location})
+	err = config.Write(config.Settings{GameLocation: location})
 	if err != nil {
 		return wrap(err)
 	}
@@ -75,42 +57,26 @@ func setup(args []string) error {
 
 const gameExeName = "DeathsDoor.exe"
 
-func checkGameAtPath(location string) error {
+func normalizeGamePath(location string) (string, error) {
 	if filepath.Base(location) != gameExeName {
 		info, err := os.Stat(location)
 		if err != nil {
-			return err
+			return "", err
 		}
 		if !info.Mode().IsDir() {
-			return fmt.Errorf("%s is not a directory", location)
+			return "", fmt.Errorf("%s is not a directory", location)
 		}
 		location = filepath.Join(location, gameExeName)
 	}
 	info, err := os.Stat(location)
 	if errors.Is(err, os.ErrNotExist) {
-		return fmt.Errorf("game not found at %s", location)
+		return "", fmt.Errorf("game not found at %s", location)
 	}
 	if err != nil {
-		return err
+		return "", err
 	}
 	if !info.Mode().IsRegular() {
-		return fmt.Errorf("thing at %s is not a regular file", location)
+		return "", fmt.Errorf("thing at %s is not a regular file", location)
 	}
-	return nil
-}
-
-func writeSettings(path string, s settings) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
-		return err
-	}
-	f, err := os.Create(path)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-	err = toml.NewEncoder(f).Encode(s)
-	if err != nil {
-		return err
-	}
-	return f.Close()
+	return filepath.Dir(location), nil
 }
