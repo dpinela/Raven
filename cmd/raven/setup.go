@@ -15,8 +15,6 @@ func setup(args []string) error {
 		return errors.New("setup: expect game location as argument")
 	}
 
-	location := args[0]
-
 	wrap := func(err error) error {
 		return fmt.Errorf("setup at %s: %w", args[0], err)
 	}

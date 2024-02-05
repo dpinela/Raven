@@ -63,13 +63,18 @@ func (r *Repository) GetMod(modName string) (Mod, error) {
 }
 
 func (r *Repository) ResolveModName(modName string) (string, error) {
+	names := r.ModNames()
+	return ResolveModName(names, modName)
+}
+
+func (r *Repository) ModNames() []string {
 	modFiles, _ := fs.Glob(r.arch, "modlinks-main/mods/*.toml")
 	names := make([]string, len(modFiles))
 	for i, mf := range modFiles {
 		b := path.Base(mf)
 		names[i] = strings.TrimSuffix(b, path.Ext(b))
 	}
-	return resolveModName(names, modName)
+	return names
 }
 
 func (r *Repository) TransitiveClosure(leaves []string) ([]Mod, error) {
@@ -150,7 +155,7 @@ func (err *duplicateModError) Error() string {
 	return fmt.Sprintf("%q is ambiguous: %d mods with that exact name exist", err.requestedName, err.numMatches)
 }
 
-func resolveModName(ms []string, requestedName string) (string, error) {
+func ResolveModName(ms []string, requestedName string) (string, error) {
 	pattern, err := regexp.Compile("(?i)" + regexp.QuoteMeta(requestedName))
 	if err != nil {
 		return "", err

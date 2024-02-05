@@ -16,11 +16,3 @@ func runCommand(args []string) error {
 		return fmt.Errorf("unknown command: %s", args[0])
 	}
 }
-
-func list(args []string) error {
-	return nil
-}
-
-func yeet(args []string) error {
-	return nil
-}

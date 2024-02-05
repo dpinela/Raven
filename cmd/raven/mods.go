@@ -4,14 +4,17 @@ import (
 	"archive/zip"
 	"bytes"
 	"crypto/sha256"
-	"errors"
 	"encoding/hex"
+	"errors"
+	"flag"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
 	"path"
 	"path/filepath"
+	"regexp"
+	"sort"
 	"strings"
 	"time"
 
@@ -298,4 +301,170 @@ func removePreviousVersion(name, installdir string) error {
 		return nil
 	}
 	return fmt.Errorf("yeet installed version of %s: %w", name, err)
+}
+
+func list(args []string) error {
+	flags := flag.NewFlagSet("list", flag.ContinueOnError)
+	var detailed bool
+	var installed bool
+	var search string
+	flags.BoolVar(&detailed, "d", false, "Display detailed information about mods")
+	flags.BoolVar(&installed, "i", false, "Show only info on installed mods")
+	flags.StringVar(&search, "s", "", "Search for mods whose name contains `term`")
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	repo, err := modlinks.Get()
+	if err != nil {
+		return err
+	}
+	knownNames := repo.ModNames()
+	var modFilter filter
+	if installed {
+		settings, err := config.Get()
+		if err != nil {
+			return err
+		}
+		if settings.GameLocation == "" {
+			return errors.New("setup not done yet")
+		}
+		installdir := filepath.Join(settings.GameLocation, "BepInEx", "plugins")
+		mods, err := installedMods(installdir)
+		if err != nil {
+			return err
+		}
+		modSet := make(map[string]bool, len(mods))
+		for _, im := range mods {
+			modSet[im] = false
+		}
+		for _, m := range knownNames {
+			if _, ok := modSet[m]; ok {
+				modSet[m] = true
+			}
+		}
+
+		for im, hasManifest := range modSet {
+			if !hasManifest {
+				knownNames = append(knownNames, im)
+			}
+		}
+		modFilter = modFilter.and(func(name string) bool {
+			_, ok := modSet[name]
+			return ok
+		})
+	}
+	if search != "" {
+		pattern, err := regexp.Compile("(?i)" + regexp.QuoteMeta(search))
+		if err != nil {
+			return err
+		}
+		modFilter = modFilter.and(pattern.MatchString)
+	}
+	filtered := knownNames[:0]
+	for _, m := range knownNames {
+		if modFilter.test(m) {
+			filtered = append(filtered, m)
+		}
+	}
+	sort.Strings(filtered)
+	for _, name := range filtered {
+		m, err := repo.GetMod(name)
+		if err != nil {
+			const placeholder = "N/A"
+
+			m = modlinks.Mod{
+				Name:         name,
+				Description:  placeholder,
+				Dependencies: []string{placeholder},
+				Repository:   placeholder,
+			}
+		}
+		fmt.Println(m.Name)
+		if detailed {
+			fmt.Println("\tRepository:", m.Repository)
+			deps := "none"
+			if len(m.Dependencies) > 0 {
+				deps = strings.Join(m.Dependencies, ", ")
+			}
+			fmt.Println("\tDependencies:", deps)
+			fmt.Printf("\t%s\n\n", strings.ReplaceAll(m.Description, "\n", "\n\t"))
+		}
+	}
+	return nil
+}
+
+type filter func(string) bool
+
+func (f filter) and(g filter) filter {
+	if f == nil {
+		return g
+	}
+	if g == nil {
+		return f
+	}
+	return func(x string) bool { return f(x) && g(x) }
+}
+
+func (f filter) test(x string) bool {
+	if f == nil {
+		return true
+	}
+	return f(x)
+}
+
+func yeet(args []string) error {
+	settings, err := config.Get()
+	if err != nil {
+		return err
+	}
+	if settings.GameLocation == "" {
+		return errors.New("setup not done yet")
+	}
+
+	modsdir := filepath.Join(settings.GameLocation, "BepInEx", "plugins")
+	mods, err := installedMods(modsdir)
+	if err != nil {
+		return err
+	}
+	modsToDelete := map[string]struct{}{}
+	for _, arg := range args {
+		resolved, err := modlinks.ResolveModName(mods, arg)
+		if err != nil {
+			fmt.Println(err)
+			continue
+		}
+		modsToDelete[resolved] = struct{}{}
+	}
+	for mod := range modsToDelete {
+		if err := removePreviousVersion(mod, modsdir); err != nil {
+			fmt.Println(err)
+		} else {
+			fmt.Println("Yeeted", mod)
+		}
+	}
+	return nil
+}
+
+func installedMods(modsdir string) ([]string, error) {
+	wrap := func(err error) error {
+		return fmt.Errorf("list installed mods: %w", err)
+	}
+
+	dir, err := os.Open(modsdir)
+	if err != nil {
+		return nil, wrap(err)
+	}
+	entries, err := dir.ReadDir(0)
+	dir.Close()
+	if err != nil {
+		return nil, wrap(err)
+	}
+	// We expect almost all of the entries in the Mods directory to be actual mods.
+	modnames := make([]string, 0, len(entries))
+	for _, e := range entries {
+		if e.IsDir() && !strings.EqualFold(strings.TrimSpace(e.Name()), "Disabled") {
+			modnames = append(modnames, e.Name())
+		}
+	}
+	return modnames, nil
 }
