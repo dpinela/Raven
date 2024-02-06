@@ -11,17 +11,28 @@ import (
 )
 
 func setup(args []string) error {
-	if len(args) < 1 {
-		return errors.New("setup: expect game location as argument")
+	if len(args) > 1 {
+		return fmt.Errorf("setup: %d arguments provided, expect 1 (does game path have spaces?)", len(args))
 	}
+
+	var location string
+	if len(args) == 0 {
+		var ok bool
+		location, ok = guessGamePath()
+		if !ok {
+			return errors.New("setup: game not found in any default paths; you must manually specify the game path")
+		}
+	} else {
+		var err error
+		location, err = normalizeGamePath(args[0])
+		if err != nil {
+			return fmt.Errorf("setup at %s: %w", args[0], err)
+		}
+	}
+	fmt.Println("=> Found game at", location)
 
 	wrap := func(err error) error {
-		return fmt.Errorf("setup at %s: %w", args[0], err)
-	}
-
-	location, err := normalizeGamePath(args[0])
-	if err != nil {
-		return wrap(err)
+		return fmt.Errorf("setup at %s: %w", location, err)
 	}
 
 	cachedir, err := os.UserCacheDir()
@@ -51,6 +62,17 @@ func setup(args []string) error {
 		return wrap(err)
 	}
 	return nil
+}
+
+func guessGamePath() (string, bool) {
+	for _, p := range standardGamePaths {
+		exp := os.ExpandEnv(p)
+		exp, err := normalizeGamePath(exp)
+		if err == nil {
+			return exp, true
+		}
+	}
+	return "", false
 }
 
 const gameExeName = "DeathsDoor.exe"
