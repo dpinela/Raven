@@ -8,6 +8,8 @@ To install this tool, grab a binary release, or if you have a [Go][] toolchain i
 
     $ go install github.com/dpinela/Raven/cmd/raven@latest
 
+[Go]: https://go.dev
+
 ## Commands
 
 There are two ways of invoking Raven's commands;
@@ -31,7 +33,7 @@ locations for Steam and GoG:
 If you don't have the game at one of these locations,
 you must specify its path explicitly:
 
-    raven /location/of/Deaths_Door.exe
+    raven setup /location/of/Deaths_Door.exe
 
 Either the path to the game executable itself or to
 its parent directory are acceptable.
