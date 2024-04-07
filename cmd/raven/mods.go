@@ -68,8 +68,6 @@ func isatty(f *os.File) bool {
 	return info.Mode()&os.ModeCharDevice != 0
 }
 
-const ansiEraseLine = "\x1b[G\x1b[K"
-
 func downloadLink(localfile string, url string, expectedSHA []byte) (*modFile, error) {
 	wrap := func(err error) error { return fmt.Errorf("download %s: %w", url, err) }
 
@@ -92,13 +90,12 @@ func downloadLink(localfile string, url string, expectedSHA []byte) (*modFile, e
 	sha := sha256.New()
 	r := io.TeeReader(resp.Body, sha)
 	if isatty(os.Stdout) {
-		defer fmt.Print(ansiEraseLine)
 		var counter byteCounter
 		counter.updatePeriod = time.Second
 		if fullSize := dataSize(resp.ContentLength); fullSize != -1 {
-			counter.update = func(n dataSize) { fmt.Printf(ansiEraseLine+"downloading: %s of %s", n, fullSize) }
+			counter.update = func(n dataSize) { fmt.Printf("downloading: %s of %s\n", n, fullSize) }
 		} else {
-			counter.update = func(n dataSize) { fmt.Printf(ansiEraseLine+"downloading: %s of ???", n) }
+			counter.update = func(n dataSize) { fmt.Printf("downloading: %s of ???\n", n) }
 		}
 		r = io.TeeReader(r, &counter)
 	}
