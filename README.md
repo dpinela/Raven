@@ -35,6 +35,15 @@ you must specify its path explicitly:
 
     raven setup /location/of/Deaths_Door.exe
 
+or using quotes if the path contains spaces:
+
+    raven setup "/location/of/Death's Door/Deaths_Door.exe"
+
+Backslashes are accepted too on Windows, but make sure to double them
+if using the quoted form:
+
+    raven setup "C:\\location\\of\\Death's Door\\Deaths_Door.exe"
+
 Either the path to the game executable itself or to
 its parent directory are acceptable.
 
