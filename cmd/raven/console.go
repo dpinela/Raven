@@ -41,6 +41,7 @@ func parseCommandLine(line string) []string {
 		q, ok := readQuotedString(r)
 		if ok {
 			elems = append(elems, q)
+			continue
 		}
 		b, ok := readBareWord(r)
 		if ok {
